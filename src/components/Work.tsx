@@ -1,387 +1,488 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { EASE, MQ, gsap, useGsap } from "@/lib/motion";
-import { asset, cn } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { MaskLines } from "./ui/MaskLines";
 
-type Project = {
+type Example = {
   name: string;
-  /** One line under the name — what the business is and where. */
-  detail: string;
-  /** The work done, e.g. "Design · Build · Hosting". */
-  scope: string;
-  /** Shown in the frame's address bar while the site is arriving. */
+  sector: string;
+  blurb: string;
+  /** What the address bar reads. */
   domain: string;
-  /** Tall capture of the real site: the thing the visitor scrolls through. */
-  page: string;
-  /** Its pixel height. Declared, not measured — see `screensIn` below. */
-  pageHeight: number;
-  /** The same, captured at phone width. */
-  pageMobile: string;
-  pageMobileHeight: number;
-  /** Set only when the site is live. */
-  href?: string;
+  /** The site that is actually loaded into the frame. */
+  url: string;
+  /** True for a published client site; false for a studio example build. */
+  live: boolean;
 };
-
-/** Captured screen size per breakpoint: the width and height each strip was shot at. */
-const SHOT = {
-  desktop: { width: 1440, screen: 900 },
-  mobile: { width: 430, screen: 932 },
-};
-
-/**
- * How many whole screens a strip holds — i.e. how many resting points it gives.
- *
- * Declared from the capture's own dimensions rather than measured off the
- * element: the strips are lazy-loaded, so at the moment the timeline is built
- * the image has no height yet, and measuring would collapse every step to zero
- * and leave the site sitting motionless on its first screen.
- */
-const screensIn = (stripHeight: number, shotScreen: number) =>
-  Math.max(2, Math.floor(stripHeight / shotScreen));
 
 /*
- * The portfolio.
+ * The examples.
  *
- * Adding a project is one entry here plus its captures in /public. Both strips
- * are stacks of real, settled screenshots of the running site — the showcase
- * steps through them one screen at a time, so a capture with six screens gives
- * six resting points.
+ * Each of these is the real website, loaded into the frame and left alone —
+ * its own scrolling, its own navigation, its own hover states, its own
+ * full-resolution photography. Nothing here is a screenshot or a recreation.
+ *
+ * The three studio builds run from this machine (they are not deployed), so
+ * their dev servers have to be up for the frames to fill:
+ *   HEADLAND 5190 · Bower 5195 · MARRAM 5200
+ * Pristine Finish is published, so it loads from anywhere.
  */
-const PROJECTS: Project[] = [
+const EXAMPLES: Example[] = [
   {
     name: "Pristine Finish",
-    detail: "Car detailing, Manly",
-    scope: "Design · Build · Hosting",
+    sector: "Automotive / Car detailing",
+    blurb: "A real client site — services, pricing and booking, built to be used one-handed in a driveway.",
     domain: "pristine finish",
-    page: "media/work-pristine-scroll.webp",
-    pageHeight: 4960,
-    pageMobile: "media/work-pristine-mobile.webp",
-    pageMobileHeight: 5600,
-    href: "https://northsidewebsites.com/PFCarCleaning.Github.io/",
+    /*
+     * Served from the project's own static build rather than the published
+     * URL: northsidewebsites.com is returning a GitHub Pages 404 at the time of
+     * writing — the whole domain, not just this path. Point `url` back at
+     * https://northsidewebsites.com/PFCarCleaning.Github.io/ and flip `live`
+     * once Pages is publishing again.
+     */
+    url: "http://localhost:3003/PFCarCleaning.Github.io/",
+    live: false,
   },
   {
     name: "MARRAM",
-    detail: "Construction / Residential Builder",
-    scope: "Example build",
+    sector: "Construction / Residential builder",
+    blurb: "Project-led, photography-first, with the works archive doing the selling.",
     domain: "marram",
-    page: "projects/construction/scroll.webp",
-    pageHeight: 5400,
-    pageMobile: "projects/construction/scroll-mobile.webp",
-    pageMobileHeight: 5342,
+    url: "http://localhost:5200",
+    live: false,
   },
   {
     name: "Bower",
-    detail: "Hospitality / Restaurant",
-    scope: "Example build",
+    sector: "Hospitality / Restaurant",
+    blurb: "Menus, the room and reservations for a coastal dining room.",
     domain: "bower",
-    page: "projects/restaurant/scroll.webp",
-    pageHeight: 5400,
-    pageMobile: "projects/restaurant/scroll-mobile.webp",
-    pageMobileHeight: 5342,
+    url: "http://localhost:5195",
+    live: false,
   },
   {
     name: "HEADLAND",
-    detail: "Fitness / Performance",
-    scope: "Example build",
+    sector: "Fitness / Performance",
+    blurb: "Programmes, memberships and the floor itself for a performance studio.",
     domain: "headland",
-    page: "projects/gym/scroll.webp",
-    pageHeight: 5400,
-    pageMobile: "projects/gym/scroll-mobile.webp",
-    pageMobileHeight: 5342,
+    url: "http://localhost:5190",
+    live: false,
   },
 ];
 
-/** Timeline units per project. Each project owns exactly this slice. */
-const SLICE = 100;
-/** Where the arrival ends and the walk through the site begins. */
-const ENTER_END = 11;
-/** Where the walk ends and the site starts handing over to the next. */
-const EXIT_START = 90;
-
 /**
- * How the walk through one site is paced.
+ * Mounts the frame's contents only once it is nearly on screen.
  *
- * The ratio is what makes this read as deliberate rather than fast: a screen
- * rests for 2.4 units and takes 1 unit to move on, so roughly seven tenths of
- * the scrolling spent inside a project happens while the page is standing
- * still. Lengthening the track alone would never buy this — it would just pan
- * the same distance more slowly, which still reads as constant movement.
+ * Four websites is four full applications; booting them all at page load costs
+ * far more than the section is worth, and would stutter the scrolling on
+ * everything above it. `rootMargin` gives each one a screen and a half of
+ * warning, which is enough to have painted by the time it is looked at.
  */
-const HOLD = 2.4;
-const MOVE = 1;
+function useNearViewport<T extends HTMLElement>(rootMargin = "150% 0px") {
+  const ref = useRef<T>(null);
+  const [near, setNear] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || near) return;
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setNear(true);
+          io.disconnect();
+        }
+      },
+      { rootMargin }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [near, rootMargin]);
+
+  return [ref, near] as const;
+}
 
 export function Work() {
+  const [expanded, setExpanded] = useState<Example | null>(null);
+
   const scope = useGsap(({ self }) => {
     const mm = gsap.matchMedia();
-
-    const build = (opts: { mobile: boolean }) => () => {
-      const track = self.querySelector<HTMLElement>("[data-track]");
-      const stages = gsap.utils.toArray<HTMLElement>("[data-stage]", self);
-      if (!track || !stages.length) return;
-
-      gsap.set(stages, { opacity: 0 });
-
-      const master = gsap.timeline({
-        defaults: { ease: "none" },
-        scrollTrigger: {
-          trigger: track,
-          // a little before the track locks, so the first project is already
-          // arriving as its screen rises rather than appearing on empty ink
-          start: "top 75%",
-          end: "bottom bottom",
-          scrub: 0.7,
-          invalidateOnRefresh: true,
-        },
-      });
-
-      stages.forEach((stage, index) => {
-        const base = index * SLICE;
-        const shot = stage.querySelector<HTMLElement>("[data-shot]");
-        const chrome = stage.querySelector<HTMLElement>("[data-chrome]");
-        const label = stage.querySelector<HTMLElement>("[data-label]");
-        const bar = stage.querySelector<HTMLElement>("[data-bar]");
-        if (!shot) return;
-
-        /*
-         * Everything is derived from the strip's declared size and the stage's
-         * current width — never from the image's own box, which is zero until
-         * the lazy-loaded capture arrives. One step is exactly one captured
-         * screen, so every rest lands on a real screen of the real site rather
-         * than halfway between two.
-         */
-        const project = PROJECTS[index];
-        const spec = opts.mobile ? SHOT.mobile : SHOT.desktop;
-        const stripHeight = opts.mobile ? project.pageMobileHeight : project.pageHeight;
-
-        const screenHeight = () => (shot.offsetWidth * spec.screen) / spec.width;
-        const stripDisplayed = () => (shot.offsetWidth * stripHeight) / spec.width;
-        const maxTravel = () => Math.max(0, stripDisplayed() - stage.offsetHeight);
-        const restAt = (n: number) => -Math.min(n * screenHeight(), maxTravel());
-
-        const steps = screensIn(stripHeight, spec.screen);
-        const span = steps * HOLD + (steps - 1) * MOVE;
-        const unit = (EXIT_START - ENTER_END) / span;
-
-        stage.style.zIndex = String(index);
-
-        /* ---- arrive ------------------------------------------------------
-         * The site comes in framed and inset, then the frame gives way: the
-         * corners square off, the chrome bar collapses and it fills the
-         * screen. Same gesture the showcase higher up the page uses, so
-         * arriving at a project always means the same thing.
-         */
-        master
-          .fromTo(
-            stage,
-            { opacity: 0, scale: 0.84, borderRadius: 20 },
-            { opacity: 1, scale: 1, borderRadius: 0, duration: ENTER_END, ease: "power2.out" },
-            base
-          )
-          .fromTo(
-            chrome,
-            { opacity: 1, height: 34 },
-            { opacity: 0, height: 0, duration: ENTER_END * 0.7, ease: "power2.in" },
-            base + ENTER_END * 0.3
-          )
-          .fromTo(
-            label,
-            { opacity: 0, y: 28 },
-            { opacity: 1, y: 0, duration: 7, ease: EASE.out },
-            base + ENTER_END * 0.55
-          );
-
-        /* ---- walk through it --------------------------------------------- */
-        let at = base + ENTER_END;
-        for (let step = 0; step < steps - 1; step++) {
-          at += HOLD * unit; // the rest — deliberately nothing scheduled here
-          master.to(
-            shot,
-            {
-              y: () => restAt(step + 1),
-              duration: MOVE * unit,
-              ease: "power2.inOut",
-            },
-            at
-          );
-          at += MOVE * unit;
-        }
-
-        // A drift slow enough that it never competes with the rest, but stops
-        // a held screen from reading as a still image.
-        master.fromTo(
-          shot,
-          { scale: 1 },
-          { scale: 1.045, duration: EXIT_START - ENTER_END },
-          base + ENTER_END
+    mm.add(MQ.motion, () => {
+      // the frame is uncovered rather than faded in — the same curtain the rest
+      // of the site uses, and it leaves the layout untouched while it runs
+      gsap.utils.toArray<HTMLElement>("[data-frame]", self).forEach((frame) => {
+        gsap.fromTo(
+          frame,
+          { clipPath: "inset(10% 4% 0% 4% round 18px)", y: 40 },
+          {
+            clipPath: "inset(0% 0% 0% 0% round 18px)",
+            y: 0,
+            duration: 1.4,
+            ease: EASE.out,
+            scrollTrigger: { trigger: frame, start: "top 88%", once: true },
+          }
         );
-
-        if (bar) {
-          master.fromTo(
-            bar,
-            { scaleX: 0 },
-            { scaleX: 1, duration: EXIT_START - ENTER_END },
-            base + ENTER_END
-          );
-        }
-
-        /* ---- hand over ---------------------------------------------------
-         * The outgoing project recedes rather than sliding away, and the next
-         * one is already arriving underneath it — so two sites are never seen
-         * side by side, only through each other.
-         */
-        master
-          .to(stage, { opacity: 0, scale: 0.94, duration: SLICE - EXIT_START }, base + EXIT_START)
-          .to(label, { opacity: 0, y: -18, duration: 7 }, base + EXIT_START);
       });
-
-      return () => {
-        master.scrollTrigger?.kill();
-        master.kill();
-      };
-    };
-
-    mm.add(MQ.desktop, build({ mobile: false }));
-    mm.add(MQ.belowDesktop, build({ mobile: true }));
-
+    });
     return () => mm.revert();
   }, []);
 
   return (
-    <section id="work" ref={scope} className="relative bg-ink pt-[var(--section-y)]">
+    <section id="work" ref={scope} className="relative bg-ink py-[var(--section-y)]">
       <div className="shell">
         <div className="flex flex-wrap items-end justify-between gap-8">
           <div>
-            <p className="eyebrow text-sky/80">Selected work</p>
+            <p className="eyebrow text-sky/80">Examples</p>
             <MaskLines
-              lines={["Sites we've built", "around the beaches."]}
+              lines={["Explore our work."]}
               className="display mt-6 text-[length:var(--step-h2)] text-white"
             />
           </div>
           <p className="max-w-[34ch] text-white/55">
-            Every one designed from a blank page, built by hand and looked after long after it
-            goes live. Keep scrolling — you are about to walk through them.
+            These are the real websites, not pictures of them. Scroll inside any frame and have a
+            look around.
           </p>
         </div>
-      </div>
 
-      {/*
-        The track is the scroll budget for all four projects; the sticky child
-        is the screen they take over. 600svh each: about a tenth of that is
-        arriving, a tenth is handing over, and the rest is spent inside the site
-        — most of it standing still on one screen.
-
-        motion-safe on the sizing, because a `lg:` rule is emitted after a
-        `motion-reduce:` one and would otherwise win on a wide screen.
-      */}
-      <div
-        data-track
-        className="relative mt-[clamp(3.5rem,7vw,6rem)] motion-safe:h-[2400svh] md:motion-safe:h-[2800svh] lg:motion-safe:h-[3200svh]"
-      >
-        <div className="motion-safe:sticky motion-safe:top-0 motion-safe:h-[100svh] motion-safe:overflow-hidden">
-          {PROJECTS.map((project, index) => (
-            <Stage key={project.name} project={project} index={index} />
+        <div className="mt-[clamp(3.5rem,8vw,7rem)] flex flex-col gap-[clamp(4.5rem,9vw,8rem)]">
+          {EXAMPLES.map((example) => (
+            <ExampleCard key={example.name} example={example} onExpand={setExpanded} />
           ))}
         </div>
       </div>
+
+      {expanded && <Lightbox example={expanded} onClose={() => setExpanded(null)} />}
     </section>
   );
 }
 
-function Stage({ project, index }: { project: Project; index: number }) {
-  const live = Boolean(project.href);
+function ExampleCard({
+  example,
+  onExpand,
+}: {
+  example: Example;
+  onExpand: (example: Example) => void;
+}) {
+  const [ref, near] = useNearViewport<HTMLDivElement>();
+  const [loaded, setLoaded] = useState(false);
+  const [touched, setTouched] = useState(false);
+  const [status, setStatus] = useState<"checking" | "up" | "down">("checking");
+
+  /*
+   * Is the site actually being served?
+   *
+   * Three of these run from this machine, and a stopped dev server would
+   * otherwise render Chrome's broken-page icon inside the frame — which looks
+   * like the portfolio is broken rather than the server being off. A no-cors
+   * probe cannot read the response, but it does reject on a refused
+   * connection, which is all that needs knowing.
+   */
+  useEffect(() => {
+    if (!near) return;
+    let cancelled = false;
+    fetch(example.url, { mode: "no-cors", cache: "no-store" })
+      .then(() => !cancelled && setStatus("up"))
+      .catch(() => !cancelled && setStatus("down"));
+    return () => {
+      cancelled = true;
+    };
+  }, [near, example.url]);
 
   return (
-    <div
-      data-stage
-      className={cn(
-        "overflow-hidden bg-ink-2",
-        // full-bleed and stacked while the showcase runs; an ordinary block in
-        // the flow when motion is off
-        "motion-safe:absolute motion-safe:inset-0 motion-safe:will-change-transform",
-        "motion-reduce:relative motion-reduce:mt-16 motion-reduce:rounded-xl"
-      )}
-    >
-      {/* the frame it arrives in, which dissolves as it fills the screen */}
-      <div
-        data-chrome
-        className="flex shrink-0 items-center gap-2 overflow-hidden border-b border-white/8 bg-white/[0.04] px-4"
-        style={{ height: 34 }}
+    <article ref={ref} className="group">
+      <BrowserWindow
+        example={example}
+        onExpand={() => onExpand(example)}
+        className="transition-[transform,box-shadow] duration-[900ms] ease-[var(--ease-out-expo)] group-hover:-translate-y-1.5 group-hover:shadow-[0_60px_140px_-40px_rgba(46,124,196,0.45)]"
       >
-        <span className="h-2 w-2 rounded-full bg-white/25" aria-hidden="true" />
-        <span className="h-2 w-2 rounded-full bg-white/25" aria-hidden="true" />
-        <span className="h-2 w-2 rounded-full bg-white/25" aria-hidden="true" />
-        <span className="mx-auto max-w-[60%] truncate rounded-full bg-white/[0.06] px-4 py-1 text-[10px] font-medium tracking-[0.06em] text-white/45">
-          {project.domain}
-        </span>
-      </div>
-
-      <div className="relative h-full w-full overflow-hidden motion-reduce:aspect-[16/9] motion-reduce:h-auto">
-        {/* Only the matching capture is fetched. Lazy, because the visitor is
-            several screens away when this markup first exists. */}
-        <picture>
-          <source media="(min-width: 1024px)" srcSet={asset(project.page)} />
-          <img
-            data-shot
-            src={asset(project.pageMobile)}
-            alt={`The ${project.name} website`}
+        {near && status === "up" ? (
+          <iframe
+            src={example.url}
+            title={`The ${example.name} website`}
             loading="lazy"
-            decoding="async"
-            className="absolute inset-x-0 top-0 w-full origin-top will-change-transform"
+            onLoad={() => setLoaded(true)}
+            // the site inside owns its own scrolling, links and hover states;
+            // nothing is scripted into it from here
+            className="h-full w-full border-0 bg-ink-2"
           />
-        </picture>
-      </div>
+        ) : (
+          <div className="h-full w-full bg-ink-2" />
+        )}
 
-      {/* the only interface over the imagery */}
-      <div
-        data-label
-        className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-[linear-gradient(to_top,rgba(5,11,20,0.92),rgba(5,11,20,0.55)_45%,transparent)] pt-28 motion-reduce:static motion-reduce:bg-none motion-reduce:pt-6"
-      >
-        <div className="shell flex flex-wrap items-end justify-between gap-x-8 gap-y-4 pb-[clamp(1.75rem,4vh,3rem)]">
-          <div className="min-w-0">
-            <span className="text-[0.7rem] tracking-[0.2em] text-white/45">
-              {String(index + 1).padStart(2, "0")}
-            </span>
-            <h3 className="display mt-2 text-[clamp(1.9rem,3.6vw,3.2rem)] text-white">
-              {project.name}
-            </h3>
-            <p className="mt-2 text-[0.95rem] text-white/60">{project.detail}</p>
+        {/* while the application inside is booting */}
+        {near && status === "up" && !loaded && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-ink-2">
+            <span className="h-8 w-8 animate-spin rounded-full border border-white/15 border-t-white/70" />
           </div>
+        )}
 
-          <div className="flex items-center gap-6">
-            <p className="text-[0.7rem] tracking-[0.18em] text-white/45 uppercase">
-              {project.scope}
+        {status === "down" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-ink-2 px-8 text-center">
+            <p className="display text-[clamp(1.3rem,2.2vw,1.9rem)] text-white/85">
+              {example.name} is not being served
             </p>
-            {live && (
-              <a
-                href={project.href}
-                target="_blank"
-                rel="noreferrer"
-                className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-white/25 px-5 py-2.5 text-[0.78rem] font-semibold text-white transition-colors duration-500 hover:border-white/60 hover:bg-white/5"
-              >
-                Open live site
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-3 w-3"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M7 17 17 7M9 7h8v8" />
-                </svg>
-              </a>
-            )}
+            <p className="max-w-[46ch] text-[0.9rem] leading-relaxed text-white/50">
+              This preview loads the real website from your machine. Start its local server and
+              refresh to explore it here.
+            </p>
+            <code className="rounded-md bg-black/40 px-3.5 py-2 font-mono text-[0.78rem] text-sky/90 ring-1 ring-white/10">
+              {example.url}
+            </code>
           </div>
-        </div>
+        )}
 
-        {/* how far through this project the visitor is */}
-        <div className="shell pb-6 motion-reduce:hidden">
-          <span className="block h-px w-full bg-white/12">
-            <span data-bar className="block h-full w-full origin-left scale-x-0 bg-sky/80" />
+        {/* the hint that this is not a picture; it retires once used */}
+        <div
+          onPointerDown={() => setTouched(true)}
+          onWheel={() => setTouched(true)}
+          className={cn(
+            // bottom-right, not centred: these sites all lead with a large
+            // centred headline, and the hint was landing straight on top of it
+            "pointer-events-none absolute right-5 bottom-5 z-10 flex justify-end",
+            "transition-opacity duration-700",
+            touched || !loaded ? "opacity-0" : "opacity-100"
+          )}
+        >
+          <span className="flex items-center gap-2.5 rounded-full bg-ink/85 px-4 py-2 text-[0.72rem] font-medium tracking-[0.14em] text-white/75 uppercase ring-1 ring-white/15 backdrop-blur-sm">
+            <svg
+              viewBox="0 0 24 24"
+              className="h-3.5 w-3.5 animate-bounce"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 5v14m-6-6 6 6 6-6" />
+            </svg>
+            Scroll to explore
           </span>
         </div>
+      </BrowserWindow>
+
+      <div className="mt-7 flex flex-wrap items-start justify-between gap-x-10 gap-y-4">
+        <div className="min-w-0">
+          <h3 className="display text-[clamp(1.7rem,3vw,2.6rem)] text-white">{example.name}</h3>
+          <p className="mt-2 text-[0.8rem] tracking-[0.16em] text-sky/80 uppercase">
+            {example.sector}
+          </p>
+          <p className="mt-4 max-w-[52ch] leading-relaxed text-white/60">{example.blurb}</p>
+        </div>
+
+        <div className="flex shrink-0 flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => onExpand(example)}
+            className="inline-flex items-center gap-2.5 rounded-full border border-white/25 px-5 py-2.5 text-[0.8rem] font-semibold text-white transition-colors duration-500 hover:border-white/60 hover:bg-white/5"
+          >
+            Open full screen
+            <svg
+              viewBox="0 0 24 24"
+              className="h-3.5 w-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
+            </svg>
+          </button>
+          {example.live && (
+            <a
+              href={example.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-[0.8rem] font-semibold text-sky transition-colors duration-500 hover:text-white"
+            >
+              Visit the live site
+              <svg
+                viewBox="0 0 24 24"
+                className="h-3 w-3"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M7 17 17 7M9 7h8v8" />
+              </svg>
+            </a>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+/**
+ * The frame.
+ *
+ * Deliberately quiet: a hairline, a shallow chrome bar and a shadow. It has to
+ * read as a browser without competing with the website inside it, which is the
+ * thing worth looking at.
+ */
+function BrowserWindow({
+  example,
+  children,
+  className,
+  onExpand,
+  tall = false,
+}: {
+  example: Example;
+  children: React.ReactNode;
+  className?: string;
+  onExpand?: () => void;
+  tall?: boolean;
+}) {
+  return (
+    <div
+      data-frame={onExpand ? "" : undefined}
+      className={cn(
+        "relative overflow-hidden rounded-[18px] bg-ink-2 ring-1 ring-white/12",
+        "shadow-[0_50px_120px_-45px_rgba(0,0,0,0.95)]",
+        className
+      )}
+    >
+      <div className="flex items-center gap-2 border-b border-white/8 bg-white/[0.05] px-4 py-3">
+        <span className="h-2.5 w-2.5 rounded-full bg-[#FF5F57]/85" aria-hidden="true" />
+        <span className="h-2.5 w-2.5 rounded-full bg-[#FEBC2E]/85" aria-hidden="true" />
+        <span className="h-2.5 w-2.5 rounded-full bg-[#28C840]/85" aria-hidden="true" />
+
+        <span className="mx-auto flex max-w-[60%] min-w-0 items-center gap-2 rounded-md bg-black/30 px-3.5 py-1.5 ring-1 ring-white/8">
+          <svg
+            viewBox="0 0 24 24"
+            className="h-3 w-3 shrink-0 text-white/40"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            aria-hidden="true"
+          >
+            <rect x="5" y="11" width="14" height="9" rx="2" />
+            <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+          </svg>
+          <span className="truncate text-[11px] font-medium tracking-[0.04em] text-white/55">
+            {example.domain}
+          </span>
+        </span>
+
+        {onExpand && (
+          <button
+            type="button"
+            onClick={onExpand}
+            aria-label={`Open ${example.name} full screen`}
+            className="shrink-0 rounded-md p-1.5 text-white/40 transition-colors duration-400 hover:bg-white/10 hover:text-white"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-3.5 w-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
+            </svg>
+          </button>
+        )}
+      </div>
+
+      {/*
+        data-lenis-prevent: Lenis listens for wheel on window and preventDefaults
+        it to drive its own smoothing. A wheel over an embedded site must belong
+        to that site, not to this page — this tells Lenis to keep its hands off
+        anything originating in here, so the preview scrolls rather than the
+        page underneath it.
+      */}
+      <div
+        data-lenis-prevent
+        className={cn(
+          "relative w-full",
+          tall ? "h-[calc(100svh-7.5rem)]" : "h-[clamp(26rem,64svh,44rem)]"
+        )}
+      >
+        {children}
       </div>
     </div>
+  );
+}
+
+/** The same site again, given the whole screen. */
+function Lightbox({ example, onClose }: { example: Example; onClose: () => void }) {
+  const onKey = useCallback(
+    (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    },
+    [onClose]
+  );
+
+  useEffect(() => {
+    document.addEventListener("keydown", onKey);
+    // the page behind must not scroll while the overlay owns the screen
+    document.documentElement.classList.add("menu-open", "lenis-stopped");
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.documentElement.classList.remove("menu-open", "lenis-stopped");
+    };
+  }, [onKey]);
+
+  /*
+   * Portalled to <body> on purpose.
+   *
+   * This section lives inside a `relative z-10` <main>, which is its own
+   * stacking context — a z-index set in here can only compete with its
+   * siblings, so the fixed header at z-50 was painting straight over the
+   * dialog. Out at the body it outranks everything.
+   */
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${example.name}, full screen`}
+      className="fixed inset-0 z-[120] flex flex-col bg-ink/95 backdrop-blur-sm"
+    >
+      <div className="flex items-center justify-between gap-6 px-[clamp(1rem,4vw,2.5rem)] py-4">
+        <div className="min-w-0">
+          <p className="truncate text-[0.95rem] font-semibold text-white">{example.name}</p>
+          <p className="truncate text-[0.72rem] tracking-[0.16em] text-white/45 uppercase">
+            {example.sector}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          autoFocus
+          className="inline-flex shrink-0 items-center gap-2.5 rounded-full border border-white/25 px-5 py-2.5 text-[0.8rem] font-semibold text-white transition-colors duration-400 hover:border-white/60 hover:bg-white/10"
+        >
+          Close
+          <svg
+            viewBox="0 0 24 24"
+            className="h-3.5 w-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.4"
+            strokeLinecap="round"
+            aria-hidden="true"
+          >
+            <path d="M6 6l12 12M18 6 6 18" />
+          </svg>
+        </button>
+      </div>
+
+      <div className="min-h-0 flex-1 px-[clamp(0.5rem,3vw,2.5rem)] pb-[clamp(0.75rem,3vh,2rem)]">
+        <BrowserWindow example={example} tall className="h-full">
+          <iframe
+            src={example.url}
+            title={`The ${example.name} website, full screen`}
+            className="h-full w-full border-0 bg-ink-2"
+          />
+        </BrowserWindow>
+      </div>
+    </div>,
+    document.body
   );
 }

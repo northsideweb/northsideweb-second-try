@@ -1,0 +1,57 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# build output
+dist/
+build/
+out/
+.vite/
+
+# environment and secrets — never commit these
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.keystore
+secrets.json
+credentials.json
+
+# caches and generated metadata
+*.tsbuildinfo
+.cache/
+.temp/
+.tmp/
+tmp/
+.eslintcache
+.turbo/
+
+# capture / asset staging (see scripts/prepare-assets.mjs)
+.nsw-captures/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+# editors and IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.claude/
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log

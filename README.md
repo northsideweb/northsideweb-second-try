@@ -4,8 +4,10 @@ A rebuild of the Northside Web homepage as a standalone project. Same brand,
 same photography, same logo; a different site.
 
 **Nothing in this repo writes to the existing project.** The assets were copied
-out of `~/Desktop/northside-web-v2/public` by `scripts/prepare-assets.mjs`,
-which only ever reads from there. The live site and its source are untouched.
+out of a sibling `northside-web-v2/public` checkout by
+`scripts/prepare-assets.mjs`, which only ever reads from there — and its
+generated output is committed, so a fresh clone never needs to run it. Point it
+somewhere else with `NSW_ASSET_SOURCE=…` if you ever do.
 
 ---
 

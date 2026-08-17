@@ -16,13 +16,26 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
 const PUBLIC = path.join(ROOT, "public");
 
-/** Read-only source of the existing brand assets. */
-const SOURCE = "/Users/jamiecummings/Desktop/northside-web-v2/public";
-/** Full-page captures of the live Pristine Finish site (a real client build). */
-const SCRATCH =
-  "/private/tmp/claude-501/-Users-jamiecummings-Desktop/6495f1e3-8582-4c0b-a382-420277c27757/scratchpad";
-const PRISTINE_CAPTURE = `${SCRATCH}/pf-full.png`;
-const PRISTINE_MOBILE_CAPTURE = `${SCRATCH}/pf-mobile.png`;
+/*
+ * Where the source material lives.
+ *
+ * Both default to a sibling checkout so the script carries no path belonging to
+ * one machine, and both can be pointed elsewhere:
+ *
+ *   NSW_ASSET_SOURCE=../some/other/public node scripts/prepare-assets.mjs
+ *
+ * Everything below already skips cleanly when a source is missing, so this is a
+ * one-off pipeline: the assets it produced are committed, and a fresh clone
+ * never needs to run it.
+ */
+const SOURCE = path.resolve(
+  ROOT,
+  process.env.NSW_ASSET_SOURCE ?? "../northside-web-v2/public"
+);
+/** Full-page captures of the Pristine Finish site, taken with headless Chrome. */
+const SCRATCH = path.resolve(ROOT, process.env.NSW_CAPTURE_DIR ?? "../.nsw-captures");
+const PRISTINE_CAPTURE = path.join(SCRATCH, "pf-full.png");
+const PRISTINE_MOBILE_CAPTURE = path.join(SCRATCH, "pf-mobile.png");
 
 const exists = (p) =>
   access(p).then(
