@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+/* The bundled example sites under public/examples are complete, already-built
+   websites with their own stylesheets. Tailwind's automatic content detection
+   was scanning their markup and generating utilities nothing here uses, which
+   more than doubled the stylesheet. They render in iframes and never touch
+   this one. */
+@source not "../public/examples";
+
 /* ---------------------------------------------------------------------------
    Fonts
    Latin subsets of two variable faces, self-hosted. Archivo carries the

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { EASE, MQ, gsap, useGsap } from "@/lib/motion";
-import { cn } from "@/lib/utils";
+import { asset, cn } from "@/lib/utils";
 import { MaskLines } from "./ui/MaskLines";
 
 type Example = {
@@ -23,10 +23,13 @@ type Example = {
  * its own scrolling, its own navigation, its own hover states, its own
  * full-resolution photography. Nothing here is a screenshot or a recreation.
  *
- * The three studio builds run from this machine (they are not deployed), so
- * their dev servers have to be up for the frames to fill:
- *   HEADLAND 5190 · Bower 5195 · MARRAM 5200
- * Pristine Finish is published, so it loads from anywhere.
+ * Each site is a static export of the real project, committed under
+ * public/examples/<slug>/ and served from this same origin. That means the
+ * previews work from a clone, on GitHub Pages, and offline — no dev servers,
+ * no cross-origin embedding, and no mixed content when the page is on HTTPS.
+ *
+ * To refresh one, rebuild that project as a static export under the matching
+ * basePath and replace the folder. See README, "Refreshing an example".
  */
 const EXAMPLES: Example[] = [
   {
@@ -35,13 +38,11 @@ const EXAMPLES: Example[] = [
     blurb: "A real client site — services, pricing and booking, built to be used one-handed in a driveway.",
     domain: "pristine finish",
     /*
-     * Served from the project's own static build rather than the published
-     * URL: northsidewebsites.com is returning a GitHub Pages 404 at the time of
-     * writing — the whole domain, not just this path. Point `url` back at
-     * https://northsidewebsites.com/PFCarCleaning.Github.io/ and flip `live`
-     * once Pages is publishing again.
+     * Bundled like the others. Its published home, northsidewebsites.com, was
+     * returning a GitHub Pages 404 when this was wired up; once that is serving
+     * again, `live: true` restores the "Visit the live site" link.
      */
-    url: "http://localhost:3003/PFCarCleaning.Github.io/",
+    url: asset("examples/pristine/"),
     live: false,
   },
   {
@@ -49,7 +50,7 @@ const EXAMPLES: Example[] = [
     sector: "Construction / Residential builder",
     blurb: "Project-led, photography-first, with the works archive doing the selling.",
     domain: "marram",
-    url: "http://localhost:5200",
+    url: asset("examples/construction/"),
     live: false,
   },
   {
@@ -57,7 +58,7 @@ const EXAMPLES: Example[] = [
     sector: "Hospitality / Restaurant",
     blurb: "Menus, the room and reservations for a coastal dining room.",
     domain: "bower",
-    url: "http://localhost:5195",
+    url: asset("examples/restaurant/"),
     live: false,
   },
   {
@@ -65,7 +66,7 @@ const EXAMPLES: Example[] = [
     sector: "Fitness / Performance",
     blurb: "Programmes, memberships and the floor itself for a performance studio.",
     domain: "headland",
-    url: "http://localhost:5190",
+    url: asset("examples/gym/"),
     live: false,
   },
 ];
@@ -170,11 +171,10 @@ function ExampleCard({
   /*
    * Is the site actually being served?
    *
-   * Three of these run from this machine, and a stopped dev server would
-   * otherwise render Chrome's broken-page icon inside the frame — which looks
-   * like the portfolio is broken rather than the server being off. A no-cors
-   * probe cannot read the response, but it does reject on a refused
-   * connection, which is all that needs knowing.
+   * The exports are committed, so this should always succeed — but if a folder
+   * ever goes missing from a build, the frame would render Chrome's broken-page
+   * icon, which reads as the portfolio being broken. The probe cannot see the
+   * response body, only whether the request resolved, which is all that matters.
    */
   useEffect(() => {
     if (!near) return;
@@ -221,8 +221,8 @@ function ExampleCard({
               {example.name} is not being served
             </p>
             <p className="max-w-[46ch] text-[0.9rem] leading-relaxed text-white/50">
-              This preview loads the real website from your machine. Start its local server and
-              refresh to explore it here.
+              This preview loads the real website from this site. The files may be missing
+              from the build — rebuild the example export and redeploy.
             </p>
             <code className="rounded-md bg-black/40 px-3.5 py-2 font-mono text-[0.78rem] text-sky/90 ring-1 ring-white/10">
               {example.url}

@@ -1,0 +1,4 @@
+User-Agent: *
+Allow: /
+
+Sitemap: https://northsidewebsites.com/northsideweb-second-try/examples/pristine/sitemap.xml

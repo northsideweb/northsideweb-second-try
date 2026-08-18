@@ -1,0 +1,4 @@
+:HL["/northsideweb-second-try/examples/construction/_next/static/chunks/0rn-gmbxckz-3.css","style"]
+:HL["/northsideweb-second-try/examples/construction/_next/static/media/0c89a48fa5027cee-s.p.2cyn07wtgehh0.woff2","font",{"crossOrigin":"","type":"font/woff2"}]
+:HL["/northsideweb-second-try/examples/construction/_next/static/media/75affa71d1e2f6a7-s.p.17-aodiw50953.woff2","font",{"crossOrigin":"","type":"font/woff2"}]
+0:{"tree":{"name":"","param":null,"prefetchHints":4176,"slots":{"children":{"name":"__PAGE__","param":null,"prefetchHints":4256,"slots":null}}},"staleTime":300,"buildId":"1tVn0K_Cw5xNgXRdf5ha9"}
